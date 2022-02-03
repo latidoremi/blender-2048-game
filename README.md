@@ -1,5 +1,4 @@
 # blender-2048-game
-play 2048 in blender
 
 install the .py file like any other addon, have fun :)
 
