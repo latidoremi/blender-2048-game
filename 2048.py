@@ -1,3 +1,21 @@
+# ##### BEGIN GPL LICENSE BLOCK #####
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation,
+#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+#
+# ##### END GPL LICENSE BLOCK #####
+
 bl_info = {
     "name": "2048",
     "author": "Latidoremi",
@@ -9,7 +27,6 @@ bl_info = {
 }
 
 
-from urllib.parse import SplitResult
 import bpy, random
 import numpy as np
 
@@ -18,11 +35,18 @@ contexts=[
     ('Pause','Pause','',0),
     ('Play','Play','',1),
     ('End','End','',2),
+    ('Win','Win','',3),
+]
+
+modes=[
+    ('2048','2048','',0),
+    ('Endless','Endless','',1),
 ]
 
 def init(context):
     scene = context.scene
     scene.GAME2048_context='Pause'
+    scene.GAME2048_mode='2048'
     context.preferences.addons['2048'].preferences.current_score=0
     
     board = scene.GAME2048_play_board
@@ -178,6 +202,13 @@ class GAME2048_OT_play():
             self.report({'INFO'}, 'Game Over')
             scene.GAME2048_context = 'End'
 
+        #check win
+        
+        if scene.GAME2048_mode=='2048' and board.max()==2048:
+            self.report({'INFO'}, 'You Win')
+            scene.GAME2048_context = 'Win'
+
+        #check use undo
         if context.preferences.addons['2048'].preferences.use_undo:
             bpy.ops.ed.undo_push(message='2048 undo')
         return {'FINISHED'}
@@ -240,6 +271,16 @@ class GAME2048_OT_play_kb(bpy.types.Operator, GAME2048_OT_play):
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
+class GAME2048_OT_continue(bpy.types.Operator):
+    bl_idname = 'game2048.continue'
+    bl_label = 'Continue'
+    bl_options = {'UNDO'}
+    
+    def execute(self, context):
+        context.scene.GAME2048_context = 'Play'
+        context.scene.GAME2048_mode='Endless'
+        return {'FINISHED'}
+
 class GAME2048_OT_new_game(bpy.types.Operator):
     '''New Game'''
     bl_idname = 'game2048.new_game'
@@ -275,16 +316,23 @@ class GAME2048_PT_main_panel(bpy.types.Panel):
         layout = self.layout
         pref = context.preferences.addons['2048'].preferences
         input_method = pref.input_method
-  
+
+        #draw score
         col=layout.column()
         col.label(text='Top Score: '+str(pref.top_score))
         col.label(text='Current Score: '+str(pref.current_score))
 
+        #draw grid
         col = layout.column(align=True)
 
-        if input_method=='Keyboard':
+        if input_method=='Button':
+            col.enabled=(scene.GAME2048_context!='End')
+        elif input_method=='Keyboard':
             col.enabled=(scene.GAME2048_context=='Play')
         
+        if scene.GAME2048_context=='Win':
+            col.enabled=False
+
         col.scale_y = 2
         for i, item in enumerate(scene.GAME2048_play_board):
             if i%4 ==0:
@@ -292,29 +340,32 @@ class GAME2048_PT_main_panel(bpy.types.Panel):
 
             sub_row.operator('game2048.empty', text = (str(item) if item!=0 else ''))
         
+        #draw button
+        if scene.GAME2048_context=='Win':
+            layout.operator('game2048.continue')
+        else:
+            if input_method=='Keyboard':
+                if scene.GAME2048_context=='Pause':
+                    layout.operator('game2048.play_kb')
+            
+            if input_method=='Button':
+                row = layout.row(align=True)
 
-        if input_method=='Keyboard':
-            if scene.GAME2048_context=='Pause':
-                layout.operator('game2048.play_kb')
-        
-        if input_method=='Button':
-            row = layout.row(align=True)
+                split = row.split()
+                split.scale_y=2.5
+                split.operator('game2048.play_bt',text='',icon='BACK').direction='Left'
 
-            split = row.split()
-            split.scale_y=2.5
-            split.operator('game2048.play_bt',text='',icon='BACK').direction='Left'
+                split = row.split()
+                split.scale_y=1.2
+                col = split.column()
+                col.operator('game2048.play_bt',text='',icon='SORT_DESC').direction='Up'
+                col.operator('game2048.play_bt',text='',icon='SORT_ASC').direction='Down'
 
-            split = row.split()
-            split.scale_y=1.2
-            col = split.column()
-            col.operator('game2048.play_bt',text='',icon='SORT_DESC').direction='Up'
-            col.operator('game2048.play_bt',text='',icon='SORT_ASC').direction='Down'
+                split = row.split()
+                split.scale_y=2.5
+                split.operator('game2048.play_bt',text='',icon='FORWARD').direction='Right'
 
-            split = row.split()
-            split.scale_y=2.5
-            split.operator('game2048.play_bt',text='',icon='FORWARD').direction='Right'
-
-        if scene.GAME2048_context in {'Pause','End'}:
+        if scene.GAME2048_context in {'Pause','End','Win'}:
             layout.operator('game2048.new_game')
 
 
@@ -368,6 +419,7 @@ classes=[
 
     GAME2048_OT_play_bt,
     GAME2048_OT_play_kb,
+    GAME2048_OT_continue,
     GAME2048_OT_new_game,
     GAME2048_OT_empty,
     
@@ -380,6 +432,7 @@ def register():
 
     bpy.types.Scene.GAME2048_play_board = bpy.props.IntVectorProperty(name='Play Board', size=16, min=0)
     bpy.types.Scene.GAME2048_context = bpy.props.EnumProperty(items=contexts)
+    bpy.types.Scene.GAME2048_mode = bpy.props.EnumProperty(items=modes)
     # init(bpy.context)
 
 def unregister():
@@ -388,6 +441,7 @@ def unregister():
     
     del bpy.types.Scene.GAME2048_play_board
     del bpy.types.Scene.GAME2048_context
+    del bpy.types.Scene.GAME2048_mode
     
 if __name__ == "__main__":
     register()
